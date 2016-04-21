@@ -80,7 +80,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
     if (vertex > x1 && vertex < x2) {
       console.log("Vertex: ", vertex)
       console.log("X: ", x1, x2)
-      alert("Graph is peaking")
+      alert("Percent are too close together")
     }
   }
 
