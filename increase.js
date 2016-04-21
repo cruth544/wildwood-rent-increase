@@ -72,7 +72,19 @@ document.addEventListener("DOMContentLoaded", function(event) {
     return data
   }
 
-  function calculateFormula(data) {
+  function adjustForPeak() {
+    var rentInputs = document.getElementsByClassName('rent')
+    var x1 = +(rentInputs[0].value.match(/[\d\.]/g).join(''));
+    var x2 = +(rentInputs[rentInputs.length - 1].value.match(/[\d\.]/g).join(''));
+    var vertex = Math.round(-formula.b / (2 * formula.a))
+    if (vertex > x1 && vertex < x2) {
+      console.log("Vertex: ", vertex)
+      console.log("X: ", x1, x2)
+      alert("Graph is peaking")
+    }
+  }
+
+  function calculateFormula(data, flag) {
     let l = Object.keys(data)
     var A = new Array(l)
     var B = new Array(l);
@@ -94,23 +106,49 @@ document.addEventListener("DOMContentLoaded", function(event) {
     for (var i = 0; i < formulaMatrix._data.length; i++) {
       formula[formulaKeys[i]] = formulaMatrix._data[i][0]
     }
-    plot()
+    if (flag) {
+      adjustForPeak()
+      plot()
+    }
+  }
+
+  function calculatePercent (rent, f) {
+    if (typeof rent !== 'number') {
+      rent = +(rent.match(/[\d\.]/g).join(''))
+    }
+    let percent = f.a*Math.pow(rent, 2) + f.b*rent + f.c
+    return percent < 0 ? 0 : percent
   }
 
   function calculateRent(rent, f) {
+    if (!f) f = formula
+    if (typeof rent !== 'number') {
+      rent = +(rent.match(/[\d\.]/g).join(''))
+    }
+    let percent = calculatePercent(rent, f)
+    if (percent < 0) {percent = 0}
+
+    return rent * (1 + percent / 100)
+  }
+
+  function writeDOM(rent, f) {
     if (!/\d/.test(rent)) {
       alert("Please enter a number");
       throw "No number"
     }
-    rent = +(rent.match(/[\d\.]/g).join(''))
-    let percent = f.a*Math.pow(rent, 2) + f.b*rent + f.c
-    if (percent < 0) {percent = 0}
-    let final = rent * (1 + percent / 100)
+
+    if (typeof rent !== 'number') {
+      rent = +(rent.match(/[\d\.]/g).join(''))
+    }
+
+    let percent = calculatePercent(rent, f)
+    let final = calculateRent(rent, f)
     let delta = +Math.round(final) - +Math.round(rent)
 
     document.getElementById('percent-applied').innerHTML = percent.toFixed(2) + "%"
     document.getElementById('rent-difference').innerHTML = "$" + Math.round(delta)
     document.getElementById('final-rent').innerHTML = "$" + Math.round(final)
+    document.getElementById('start-rent').value = "$" + rent
   }
 
   function plot() {
@@ -162,27 +200,103 @@ document.addEventListener("DOMContentLoaded", function(event) {
   // plotButton.onclick = plot;
   plot();
 
-  function uploadExcel(file) {
-    console.log(file)
+  function setRange (s, e) {
+    return {
+      s: {
+        c: s.c,
+        r: s.r
+      },
+      e: {
+        c: e.c,
+        r: e.r
+      }
+    }
   }
-  document.getElementById('upload-excel').addEventListener('change', function (e) {
-    // var workbook = new Excel.Workbook()
-    console.log(console.log(e.target.value))
-  })
+
+  function itterateThrough(sheet, cb) {
+    var r = sheet['!range']
+    var letter = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    for (var R = r.s.r; R <= r.e.r; R++) {
+      for (var C = r.s.c; C <= r.e.c; C++) {
+        let address = letter[C] + (R + 1)
+        cb(sheet[address], address)
+      }
+    }
+  }
+
+  function handleFile(e) {
+    var files = e.target.files;
+    var i,f;
+    for (i = 0, f = files[i]; i != files.length; ++i) {
+      var reader = new FileReader();
+      var name = f.name;
+      console.log(f)
+      reader.onload = function(e) {
+        var data = e.target.result;
+
+        var workbook = XLSX.read(data, {type: 'binary'});
+        var worksheet = workbook.Sheets[workbook.SheetNames[0]]
+        worksheet['!range'] = setRange({c: 0, r: 0}, {c: 26, r: 0})
+        var col;
+        let letter = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        itterateThrough(worksheet, function (cell, address) {
+          if (!cell) return
+          if (/[Rr][Ee][Nn][Tt]/.test(cell.v)) {
+            col = letter.indexOf(address[0])
+          }
+        })
+        if (!col) col = letter.indexOf('M')
+        let max = Math.max(...worksheet['!ref'].match(/\d+/g))
+        worksheet['!range'] = setRange({c: col, r: 2}, {c: col, r: max})
+        itterateThrough(worksheet, function (cell) {
+          if (cell) {
+            var final = +(Math.round(calculateRent(cell.v)).toFixed(2))
+            cell.v = final
+            cell.w = final.toFixed(2)
+          }
+        })
+        console.log(worksheet)
+
+        var fileName = f.name.split('.')
+        let index = fileName.indexOf(fileName[fileName.length - 1]) - 1
+        fileName[index] = fileName[index] + "-adjusted"
+        fileName[fileName.length - 1] = 'xlsx'
+
+        var wopts = { bookType:"xlsx", bookSST:false, type:'binary' };
+        fileName = fileName.join('.')
+
+        var wbout = XLSX.write(workbook,wopts);
+
+        function s2ab(s) {
+          var buf = new ArrayBuffer(s.length);
+          var view = new Uint8Array(buf);
+          for (var i=0; i!=s.length; ++i) view[i] = s.charCodeAt(i) & 0xFF;
+          return buf;
+        }
+
+        /* the saveAs call downloads a file on the local machine */
+        saveAs(new Blob([s2ab(wbout)],{type:""}), fileName)
+        /* DO SOMETHING WITH workbook HERE */
+      };
+      reader.readAsBinaryString(f);
+    }
+  }
+
+  document.getElementById('upload-excel')
+    .addEventListener('change', handleFile)
 
   document.getElementById('rent-input').addEventListener('submit', function (e) {
       e.preventDefault()
       var data = getInputData(e.target)
-      console.log(data)
-      calculateFormula(data)
+      calculateFormula(data, true)
       var rent = document.getElementById('start-rent').value
-      calculateRent(rent, formula)
+      writeDOM(rent, formula)
   })
 
   document.getElementById('get-rent').addEventListener('submit', function (e) {
     e.preventDefault()
     var rent = document.getElementById('start-rent').value
-    calculateRent(rent, formula)
+    writeDOM(rent, formula)
   })
 
 });
